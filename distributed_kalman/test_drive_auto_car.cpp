@@ -25,36 +25,27 @@ int main(int argc, char** argv[]) {
   //Open csv file to write results into
   FILE *test_drive_ptr = fopen("test_drive.csv", "w");
 
+  //Inital car position and velocity
+  double car1_init_x = 0;
+  double car1_init_y = 0;
+  double car1_init_theta = 0;
+  Pose2 car1_init_pose(car1_init_x, car1_init_y, car1_init_theta);
+  Vector2 car1_init_vel = {0,0};
+  double car1_id = 1;
+
   //Initial car iSAM2 parameters
   ISAM2Params parameters;
   parameters.relinearizeThreshold = 0.01;
   parameters.relinearizeSkip = 1;
   parameters.print();
 
-  //Inital car position and velocity
-  const int car_num = 2;
-  double car_init_x[car_num] = {0, 0};
-  double car_init_y[car_num] = {0, 1};
-  double car_init_theta[car_num] = {0, 0};
-  double car_init_x_vel[car_num] = {0, 0};
-  double car_init_y_vel[car_num] = {0, 0};
-  std::map<int, state> car_init_cond;
-  for (int i=1; i<=2; i++)  {
-    car_init_cond[i].position = Pose2(car_init_x[i-1], car_init_y[i-1], car_init_theta[i-1]);
-    car_init_cond[i].velocity = ((Vector(2) << car_init_x_vel[i-1], car_init_y_vel[i-1]).finished());
-  }
-  double car1_id = 1;
-  double car2_id = 2;
-
-  // Construct car1 and car2
-  Auto_Car car1(parameters, car_init_cond[1].position, car_init_cond[1].velocity, car1_id);
-  Auto_Car car2(parameters, car_init_cond[2].position, car_init_cond[2].velocity, car2_id);
+  // Construct car1
+  Auto_Car car1(parameters, car1_init_pose, car1_init_vel, car1_id);
 
   // Drive the car forward with constant acceleration of 1 over 5sec.
   for (int i=0; i<5; i++)  {
     car1.drive(1, 0, 1);
-    car2.drive(1, 0, 1);
-    fprintf(test_drive_ptr, "%f,%f,\n", car1.p_.x(), car2.p_.x()); //Record true x position 
+    fprintf(test_drive_ptr, "%f", car1.p_.x()); //Record true x position 
   }
 
   //Have car predict position based on imu measurments
@@ -64,9 +55,7 @@ int main(int argc, char** argv[]) {
   vel << 1,0, 2,0, 3,0, 4,0, 5,0;
   car1.imu_factor(dt, 5, angle_vel, vel);
   car1.estimate();
-  car2.imu_factor(dt, 5, angle_vel, vel);
-  car2.estimate();
-  fprintf(test_drive_ptr, "%f, %f", car1.x(), car2.x());
+  fprintf(test_drive_ptr, "%f", car1.x());
 
   fclose(test_drive_ptr);
   return 0;

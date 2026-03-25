@@ -20,3 +20,9 @@ struct Measurements {
   double time;
   double id;
 };
+
+//Inital state of car
+struct state  {
+  Pose2 position;
+  Vector2 velocity;
+};

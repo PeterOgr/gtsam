@@ -117,12 +117,12 @@ class Auto_Car : public Vehical  {
     //check if the nonlinear factorgraph is initalized to 0
     isam = new ISAM2(paramas);
     auto x_y_noise = noiseModel::Diagonal::Sigmas((Vector(3) << heading_sigma, x_y_sigma, x_y_sigma).finished()); // rad, m, m
-    graph_.addPrior(X(est_count), x_y_est, x_y_noise);
+    graph_.addPrior(X(est_count), p_est, x_y_noise);
     auto v_noise = noiseModel::Diagonal::Sigmas((Vector(2) << v_sigma, v_sigma).finished());
     graph_.addPrior(V(est_count), v_est, v_noise);
 
     //Key Value object that stores inital guesses for nonlinear optimization iterations
-    value_.insert(X(est_count), x_y_est);
+    value_.insert(X(est_count), p_est);
     value_.insert(V(est_count), v_est);
 
     isam->update(graph_, value_);
@@ -132,27 +132,57 @@ class Auto_Car : public Vehical  {
     value_.clear();
   }
 
+  //Makes a state estimate using the accumulated factors
+  void estimate() {
+    isam->update(graph_, value_);
+    estimates_ = isam->calculateEstimate();
+
+    // reset the graph
+    graph_.resize(0);
+    value_.clear();
+
+    // Extract state estiamte
+    p_est = estimates_.at<Pose2>(X(est_count));
+    est_count++;
+    return; 
+  }
+
   // Add IMU factors to graph
-  void imu_factor(Key key, double dt[], double omega_meas[], Vector2 vel_meas[])  {
-    Vector2 pos_change;
+  void imu_factor(double dt[], int size_of_dt, double omega_meas[], const Eigen::ArrayX2f& vel_meas)  {
 /*  Deal with IMU Noise. Use https://www.vectornav.com/resources/inertial-navigation-primer/specifications--and--error-budgets/specs-imuspecs
     for the equations and use this IMU https://www.digikey.com/en/products/detail/stmicroelectronics/ASM330LHBTR/18073041
     for the actual IMU model.  */
     double bearing_noise_density = 5; //milidegrees per sec/sqrt(Hz)
     double position_noise = 60; //ug/sqrt(Hz)
-    double sampling_rate = 1/dt[1];
+    double sampling_rate = 1/dt[1];   //TODO:Fix this probably
     double bearing_sigma = position_noise*sqrt(sampling_rate);
     double position_sigma = position_noise*sqrt(sampling_rate);
+    double vel_sigma = 0.1;   //Made it up
+
+    est_count++;
+    //Accumulate position and bearing change
     double bearing_change = 0;
-    double time_sum = 0;
-    for (int i=0; i<(sizeof(dt)/8); i++)  {
-      pos_change += vel_meas[i]*dt[i];
+    Vector2 pos_change = {0,0};
+    for (int i=0; i<size_of_dt; i++)  {
+      pos_change[0] = pos_change[0] + vel_meas(i, 0)*dt[i];
+      pos_change[1] = pos_change[1] + vel_meas(i, 1)*dt[i];
       bearing_change += omega_meas[i]*dt[i];
-      time_sum +=dt[i];
     }
-    Vector3 delta_pose = {bearing_change, pos_change[0], pos_change[1]};
+    Pose2 delta_pose(bearing_change, pos_change[0], pos_change[1]);
+    Vector2 delta_vel = {v_est[0] - vel_meas(size_of_dt-1, 0), v_est[1] - vel_meas(size_of_dt-1,1)};
     auto pose_noise = noiseModel::Diagonal::Sigmas((Vector(3) << bearing_sigma, position_sigma, position_sigma).finished());
-    graph_.add(BetweenFactor(X(est_count), X(est_count+1), delta_pose, pose_noise));
+    auto vel_noise = noiseModel::Diagonal::Sigmas((Vector(2) << vel_sigma, vel_sigma).finished());
+    auto measured_ = BetweenFactor(X(est_count-1), X(est_count), delta_pose, pose_noise).measured();
+
+    // I think you cannot use a between factor to model Pose2 types. 
+    graph_.add(BetweenFactor<Pose2>(X(est_count-1), X(est_count), delta_pose, pose_noise));
+    graph_.add(BetweenFactor<Vector2>(V(est_count-1), V(est_count), delta_vel, vel_noise));
+    
+    // Propagate position and velocity
+    Pose2 pose_prop(p_est.x() + pos_change[0], p_est.y() + pos_change[1], p_est.theta() + bearing_change);
+    Vector2 vel_prop = {vel_meas(size_of_dt-1, 0), vel_meas(size_of_dt-1, 1)};
+    value_.insert(X(est_count), pose_prop);
+    value_.insert(V(est_count), vel_prop);
     return;
   }
 
@@ -172,4 +202,14 @@ class Auto_Car : public Vehical  {
     double angle = p_.bearing(car2.p_).theta();
     return (Vector(2) << angle, dist).finished();
   }
-};
+
+  /// get x
+  inline double x()     const { return p_est.x(); }
+
+  /// get y
+  inline double y()     const { return p_est.y(); }
+
+  /// get theta
+  inline double theta() const { return p_est.theta(); }
+
+};  //Class Auto_car
