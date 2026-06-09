@@ -143,7 +143,8 @@ class Auto_Car : public Vehical  {
 
     // Extract state estiamte
     p_est = estimates_.at<Pose2>(X(est_count));
-    est_count++;
+    v_est = estimates_.at<Vector2>(V(est_count));
+
     return; 
   }
 
@@ -168,13 +169,13 @@ class Auto_Car : public Vehical  {
       pos_change[1] = pos_change[1] + vel_meas(i, 1)*dt[i];
       bearing_change += omega_meas[i]*dt[i];
     }
-    Pose2 delta_pose(bearing_change, pos_change[0], pos_change[1]);
+    Pose2 delta_pose(pos_change[0], pos_change[1], bearing_change);
     Vector2 delta_vel = {v_est[0] - vel_meas(size_of_dt-1, 0), v_est[1] - vel_meas(size_of_dt-1,1)};
     auto pose_noise = noiseModel::Diagonal::Sigmas((Vector(3) << bearing_sigma, position_sigma, position_sigma).finished());
     auto vel_noise = noiseModel::Diagonal::Sigmas((Vector(2) << vel_sigma, vel_sigma).finished());
     auto measured_ = BetweenFactor(X(est_count-1), X(est_count), delta_pose, pose_noise).measured();
 
-    // I think you cannot use a between factor to model Pose2 types. 
+    // If you use the slow but correct between factor setting ON, this works fine 
     graph_.add(BetweenFactor<Pose2>(X(est_count-1), X(est_count), delta_pose, pose_noise));
     graph_.add(BetweenFactor<Vector2>(V(est_count-1), V(est_count), delta_vel, vel_noise));
     
